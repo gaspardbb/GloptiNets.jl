@@ -1,6 +1,6 @@
 # GloptiNets    
 
-This is the code of the paper *GloptiNets: Scalable Non-Convex Optimization with Certificates*. 
+This is the code of the paper [*GloptiNets: Scalable Non-Convex Optimization with Certificates*](https://arxiv.org/abs/2306.14932). 
 
 ## Install
 
@@ -41,3 +41,5 @@ You can use the `load(::Union{PolyCheby, PolyTrigo}, filename)`, to load the ran
 - [ ] Once [#722](https://github.com/JuliaDiff/ChainRules.jl/issues/722) is solved, merge branch `julia19` which rm `dropdims` 
 
 ## Citation
+
+[Gaspard Beugnot, Julien Mairal, & Alessandro Rudi (2023). GloptiNets: Scalable Non-Convex Optimization with Certificates. *arXiv:2306.14932*](https://arxiv.org/abs/2306.14932)
