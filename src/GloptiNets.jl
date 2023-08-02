@@ -293,6 +293,58 @@ function interpolate(f::AbstractPoly{T,U,D}, g::AbstractBlockPSDModel{T,D}, reg_
     end
 end
 
+using Optim
+
+include("flux2optim.jl")
+using .Flux2Optim
+
+function lbfgs(f::AbstractPoly{T,U,D}, g::AbstractBlockPSDModel{T,D}, reg_type, reg_params;
+    nepochs, batchsize,
+    lossfunc_symb=:mse,
+    lossfunc_param=1.0,
+    show_progress=true
+) where {T<:AbstractFloat,U,D<:Domain}
+    @assert !xor(isgpu(f), isgpu(g))
+
+    params = Flux.params(trainable_params(g))
+    X = Array{T}(undef, dim(g), batchsize)
+    yf = Vector{T}(undef, batchsize)
+    if isgpu(f)
+        X = CuArray(X)
+        yf = CuArray(yf)
+    end
+    lossfunc = lossfunc_symb == :mse ? (
+        (ŷ, y) -> Flux.mse(ŷ, y)
+    ) : (
+        (ŷ, y) -> 1 / lossfunc_param * Flux.logsumexp(lossfunc_param * abs.(ŷ - y)) - 1 / lossfunc_param * log(batchsize)  # So that the LSE is closer to the max of the batch of points
+    )
+
+    reg = init(reg_type, g, reg_params)
+
+    pbar = Progress(nepochs; enabled=show_progress)
+    for _ ∈ 1:nepochs
+        _samples!(X, g)
+        _evaluate!(yf, f, X)
+        update!(reg, g)
+
+        function _get_grads!(G, x)
+            vec2params!(params, x)
+            grads = Flux.gradient(params) do
+                lossfunc(_evaluate(g, X), yf) + loss(reg, g)
+            end
+            params2vec!(G, grads)
+        end
+        function _get_val(x)
+            vec2params!(params, x)
+            lossfunc(_evaluate(g, X), yf) + loss(reg, g)
+        end
+        optimize(_get_val, _get_grads!, params2vec(params), LBFGS())
+
+        # next!(pbar; showvalues=[(:loss, loss_epoch)])
+        next!(pbar)
+    end
+end
+
 function l∞norm_samples(f::AbstractPoly{T}, g::AbstractBlockPSDModel{T}; nsamples=4096) where {T}
     X = Array{T}(undef, dim(g), nsamples)
     isgpu(f) && (X = CuArray(X))

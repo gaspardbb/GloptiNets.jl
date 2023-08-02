@@ -70,7 +70,7 @@ config = (
 @assert length(config.T) == 1
 @assert length(config.proba_tol) == 1
 d, var, T, proba_tol = config.f_d[1], config.variances[1], config.T[1], config.proba_tol[1]
-γ = ones(T, d) * convert(T, var)
+γ = ones(T, d) * convert(T, var)  # TODO: DIVIDE BY 2 HERE !!!! 
 proba = ApproxBesselSampler(ℤ, 2γ; tol=proba_tol)
 @info "Started sampling the frequencies..."
 t_proba = @elapsed ωs, ns, ps = GloptiNets.samplesprobas_bycat(proba, mom_nbatches * mom_batchsize, Int)
