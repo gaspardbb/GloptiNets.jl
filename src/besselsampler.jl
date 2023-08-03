@@ -195,6 +195,7 @@ function mean!(cum, y, N)
         x = rand(1:cum[end])
         ind = searchsortedfirst(cum, x)
         @inbounds @views cum[ind:end] .-= 1
+        r += y[ind]
     end
     r / N
 end
