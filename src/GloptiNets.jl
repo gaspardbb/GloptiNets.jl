@@ -27,6 +27,7 @@ include("polynomials.jl")
 export PolyCheby, PolyTrigo
 export evaluate, evaluate_cos, cheby, fourier
 export blocksize, rank, nblocks, dim, ncoeffs, offset, coefficients_scaled  # accessors
+include("besselmixture.jl")
 include("experimental.jl")
 
 #= 
