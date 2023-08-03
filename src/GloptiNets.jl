@@ -295,11 +295,32 @@ end
 
 using Optim
 
-include("flux2optim.jl")
-using .Flux2Optim
+"From a `Params` object, make a vector. Requires all the params to have the same type. Works for params on CUDA."
+function params2vec(params)
+    reduce(vcat, vec(p) for p ∈ params)
+end
+
+function params2vec!(v, params)
+    i = 1
+    for p ∈ params
+        s = length(reinterpret(eltype(v), p))
+        v[i:i+s-1] = reinterpret(eltype(v), p)
+        i += s
+    end
+end
+
+"Copy the content of a vector into a `Params` object. Performs no check."
+function vec2params!(params, v)
+    i = 1
+    for p ∈ params
+        s = length(p)
+        p[:] .= v[i:i+s-1]
+        i += s
+    end
+end
 
 function lbfgs(f::AbstractPoly{T,U,D}, g::AbstractBlockPSDModel{T,D}, reg_type, reg_params;
-    nepochs, batchsize,
+    nepochs, batchsize, iterperepochs=1000,
     lossfunc_symb=:mse,
     lossfunc_param=1.0,
     show_progress=true
@@ -338,7 +359,10 @@ function lbfgs(f::AbstractPoly{T,U,D}, g::AbstractBlockPSDModel{T,D}, reg_type, 
             vec2params!(params, x)
             lossfunc(_evaluate(g, X), yf) + loss(reg, g)
         end
-        optimize(_get_val, _get_grads!, params2vec(params), LBFGS())
+        optimize(_get_val, _get_grads!, params2vec(params), LBFGS(), Optim.Options(
+            iterations=iterperepochs,
+            store_trace=false,
+            show_trace=false))
 
         # next!(pbar; showvalues=[(:loss, loss_epoch)])
         next!(pbar)

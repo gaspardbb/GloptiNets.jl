@@ -108,7 +108,7 @@ function samplesprobas_bycat(proba::ApproxBesselSampler{T,D}, nfreqs, ::Type{U})
         d_ns[copy(ω)] = 1
         d_ps[copy(ω)] = prod(proba.weights[i][abs(ω[i])+1] / _ι.(D, abs(ω[i])) for i ∈ axes(ω, 1))
     end
-    cat(keys(d_ns)...; dims=Val(2)), collect(values(d_ns)), collect(values(d_ps))
+    reduce(hcat, keys(d_ns)), collect(values(d_ns)), collect(values(d_ps))
 end
 samplesprobas_bycat(proba::ApproxBesselSampler, nfreqs) = samplesprobas_bycat(proba::ApproxBesselSampler, nfreqs, Int)
 
