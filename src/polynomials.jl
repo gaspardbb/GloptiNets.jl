@@ -1,4 +1,5 @@
-abstract type AbstractPoly{T,U,D<:Domain} end
+abstract type ObjFunc{T<:AbstractFloat,D<:Domain} end
+abstract type AbstractPoly{T,U,D<:Domain} <: ObjFunc{T,D} end
 
 """
 A polynomial given in the Chebychev basis.
@@ -435,7 +436,7 @@ function lowerbound(f::PolyTrigo)
     offset(f) - sum(abs.(coefficients(f)))
 end
 
-function get_fg!(f::PolyTrigo)
+function get_fg!(f::ObjFunc)
     function fg!(F, G, x)
         (; val, grad) = withgradient(f, x)
         G !== nothing && copy!(G, grad[1])
@@ -445,7 +446,7 @@ function get_fg!(f::PolyTrigo)
     fg!
 end
 
-function candidate_min(f::PolyTrigo, x₀)
+function candidate_min(f::ObjFunc, x₀)
     res = Optim.optimize(
         Optim.only_fg!(get_fg!(f)),
         x₀, Optim.BFGS())
@@ -470,15 +471,15 @@ end
 
 _constructor(f::PolyTrigo, ps...) = PolyTrigo(ps...; nochecks=true)
 _constructor(f::PolyCheby, ps...) = PolyCheby(ps...; nochecks=true)
-function estimate_max(f::T, ntries; showprogress=true) where {T}
+function estimate_max(f, ntries; showprogress=true)
     fm = _constructor(f, -offset(f), -coefficients(f), frequencies(f))
     f★, x★ = estimate_min(fm, ntries; show_progress=showprogress)
     -f★, x★
 end
 
-function isgpu(g::AbstractPoly) end
-isgpu(g::PolyCheby) = typeof(coefficients(g)) <: CuArray
-isgpu(g::PolyTrigo) = typeof(coefficients(g)) <: CuArray
+function isgpu(f::AbstractPoly) end
+isgpu(f::PolyCheby) = typeof(coefficients(f)) <: CuArray
+isgpu(f::PolyTrigo) = typeof(coefficients(f)) <: CuArray
 
 Base.show(io::IO, ::MIME"text/plain", f::AbstractPoly) = print(io,
     """
