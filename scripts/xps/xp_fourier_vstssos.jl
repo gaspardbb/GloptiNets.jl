@@ -12,7 +12,7 @@ using JLD2
 CUDA.allowscalar(false)  # Just in case we start performing scalar indexing in new commits
 
 const usegpu = true
-@show cuda_device = 2
+@show cuda_device = 0
 const path_xps = "xps/fourier-vstssos"
 const path_data = "data/vs_tssos/fourier"
 !isdir("xps") && mkdir("xps")
@@ -24,43 +24,30 @@ using CUDA: device!
 device!(cuda_device)
 
 config = (
-    lrdecay=[
-        :cos,
-    ],
-    opt=[
-        :momentum],
+    lrdecay=[:cos,],
+    opt=[:momentum],
     lr=[
         4e-1,
         # 2e-1,
     ],
     nepochs=[2000],
     batchsize=[2048],
-    lbfgs_nepochs=[30],
-    lbfgs_batchsize=[8192],
-    lbfgs_itermax=[100],
-    variances=[
-        1.0,
-    ],
-    lossfunc_param=[
-        10.0
-    ],
-    proba_tol=[
-        1e-8
-    ],
+    lbfgs_nepochs=[1],
+    lbfgs_batchsize=[16384],
+    lbfgs_itermax=[1000],
+    variances=[1.0,],
+    lossfunc_param=[10.0],
+    proba_tol=[1e-8],
     gparams=[
         # rank, blocksize, nblocks
-        (4, 32, 8),
-        # (8, 128, 16),
+        # (4, 32, 8),
+        (8, 128, 16),
     ],
-    regtype=[NoReg],
+    regtype=[RegHSNormU],
     reg=[
-        0.0,
-        # 0.00078125,
-        # 0.0015625,
-        # 0.0015625,
-        # 0.003125,
-        # 0.00625,
-        # 0.0125,
+        1e-10,
+        1e-8,
+        1e-6,
     ],
     f_var=[2],
     f_d=[3],
@@ -108,6 +95,7 @@ for (cur_run, v) in enumerate(Iterators.product(values(config)...))
         TOML.print(f, Dict(pairs(v))) do x
             x isa Union{Symbol,DataType} && return string(x)
             x isa Tuple && return collect(x)
+            x isa UnionAll && return string(x)
             x
         end
     end
