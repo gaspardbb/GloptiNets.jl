@@ -56,6 +56,7 @@ function evaluate!(r::AbstractVector{T}, f::BesselMixtureTrigo{T}, X::AbstractMa
 end
 function (f::BesselMixtureTrigo)(X::AbstractMatrix)
     r = zeros(size(X, 2))
+    isgpu(f) && (r = CuArray(r))
     evaluate!(r, f, X)
     r
 end
@@ -68,7 +69,7 @@ function fourier(f::BesselMixtureTrigo{T}, ωs::AbstractMatrix{U}, proba::Approx
     rs = zeros(Complex{T}, size(ωs, 2))
 
     for (i, ω) ∈ enumerate(eachcol(ωs))
-        rs[i] = sum(coefficients(f) .* sum(cispi.(-2anchors(f)' * ω), dims=2)) * prod(proba.weights[j][abs(ωₖ)+1] for (j, ωₖ) ∈ enumerate(ω))
+        rs[i] = sum(coefficients(f) .* sum(cispi.(-2anchors(f)' * ω), dims=2)) * prod(proba.weights[j][abs(ωₖ)+1] / _ι.(ℤ, abs(ωₖ)) for (j, ωₖ) ∈ enumerate(ω))
 
         iszero(ω) && (rs[i] += constant(f))
     end
@@ -127,8 +128,8 @@ end
 
     for x ∈ eachcol(xs)
         (; val, grad) = GloptiNets.withgradient(f, x)
-        @show val ≈ f(x)
-        @show ≈(grad[1], [(f(x + ϵ1) - f(x - ϵ1)) / 2ϵ, (f(x + ϵ2) - f(x - ϵ2)) / 2ϵ]; atol=1e-4, rtol=1e-4)
+        @test val ≈ f(x)
+        @test ≈(grad[1], [(f(x + ϵ1) - f(x - ϵ1)) / 2ϵ, (f(x + ϵ2) - f(x - ϵ2)) / 2ϵ]; atol=1e-4, rtol=1e-4)
     end
 end
 

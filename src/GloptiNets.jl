@@ -66,6 +66,10 @@ function dotproduct_bound(f::AbstractPoly{T,U,D}, g::AbstractBlockPSDModel{T,D},
 
     dc_part + ac_part
 end
+function dotproduct_bound(f::BesselMixtureTrigo{T}, g::AbstractBlockPSDModel{T,ℤ}, proba::ApproxBesselSampler{T,ℤ}) where {T}
+    @assert scale(f) .== proba.scale[1] "Implemented for Bessel mixture with uniform scale"
+    hnorm2(f)
+end
 
 """
 A bound on the variance of the estimator defined with
@@ -123,7 +127,7 @@ function norms_numapprox(f::AbstractPoly{T,U,D}, g::AbstractBlockPSDModel{T,D}, 
 end
 
 _basis_proj(f::Union{AbstractPoly{T,U,ℕ},AbstractBlockPSDModel{T,ℕ}}, ωs) where {T,U} = cheby(f, ωs)
-_basis_proj(f::Union{AbstractPoly{T,U,ℤ},AbstractBlockPSDModel{T,ℤ}}, ωs) where {T,U} = fourier(f, ωs)
+_basis_proj(f::Union{ObjFunc{T,ℤ},AbstractBlockPSDModel{T,ℤ}}, ωs) where {T} = fourier(f, ωs)
 """
 Approximate the F-norm with a median of mean. Combined with the variance, this allows a bound with confidence `1 - δ` on the mean of the random variable being estimated.
 
@@ -151,7 +155,7 @@ function mom_estimator(f::AbstractPoly{T,U,D}, g::AbstractBlockPSDModel, proba::
     mom_estimator(f, g, ωs, ns, ps; nbatch=nbatch, batchsize=batchsize)
 end
 
-function mom_estimator(f::AbstractPoly{T,U,D}, g::AbstractBlockPSDModel, ωs, ns, ps; nbatch, batchsize) where {T,U,D<:Domain}
+function mom_estimator(f::ObjFunc, g::AbstractBlockPSDModel, ωs, ns, ps; nbatch, batchsize)
     r̂ = abs.(
         _basis_proj(f, ωs) .- _basis_proj(g, ωs)
     ) ./ ps
@@ -189,11 +193,30 @@ _samples!(X, g::PSDBlockBesselCheby) = begin
     @. X = acos(X * 2.0 - 1.0) / 2π
 end
 _samples!(X, g::PSDBlockBesselFourier) = Random.rand!(X)
+"Create samples of a grid in dimension `d` with `nᵈ` values regularly spaced."
+grid(::Type{T}, d, n) where {T} = begin
+    out = zeros(T, d, n^d)
+    for k in 1:d
+        r, R = n^(d - k), n^(k - 1)
+        out[k, :] = reduce(hcat,
+            reduce(hcat, T(xᵢ) * ones(T, r)' for xᵢ ∈ LinRange(0.0, 1.0, n + 1)[1:end-1])::LinearAlgebra.Adjoint{T,Vector{T}}
+            for _ ∈ 1:R)::LinearAlgebra.Adjoint{T,Vector{T}}
+    end
+    out
+end
+function _samples_deterministic!(X, g::PSDBlockBesselFourier{T}) where {T}
+    dim = size(X, 1)
+    nperdim = Int(floor(Float64(size(X, 2))^(1 / dim)))
+    ntot = nperdim^dim * dim
+    grid_cpu = grid(T, dim, nperdim)
+    copyto!(X, grid_cpu[1:ntot])
+    Random.rand!(X[ntot+1:end])
+end
 
 _evaluate!(r, h::PolyCheby, X) = evaluate_cos!(r, h, X)
-_evaluate!(r, h::PolyTrigo, X) = evaluate!(r, h, X)
+_evaluate!(r, h::Union{PolyTrigo,BesselMixtureTrigo}, X) = evaluate!(r, h, X)
 _evaluate(h::Union{PolyCheby,PSDBlockBesselCheby}, X) = evaluate_cos(h, X)
-_evaluate(h::Union{PolyTrigo,PSDBlockBesselFourier}, X) = h(X)
+_evaluate(h::Union{PolyTrigo,BesselMixtureTrigo,PSDBlockBesselFourier}, X) = h(X)
 
 abstract type AbstractReg end
 function init end
@@ -246,12 +269,12 @@ function loss(reg::RegOrthNorm, g)
 end
 
 "Interpolate a *positive* polynomial."
-function interpolate(f::AbstractPoly{T,U,D}, g::AbstractBlockPSDModel{T,D}, reg_type, reg_params;
+function interpolate(f::ObjFunc{T,D}, g::AbstractBlockPSDModel{T,D}, reg_type, reg_params;
     optimizer_params, nepochs, batchsize,
     lossfunc_symb=:mse,
     lossfunc_param=1.0,
     show_progress=true
-) where {T<:AbstractFloat,U,D<:Domain}
+) where {T<:AbstractFloat,D<:Domain}
     (; optimizer_type, optimizer_lrdecay, optimizer_lrinit) = optimizer_params
     optimizer = get_optimizer(optimizer_type, optimizer_lrdecay, optimizer_lrinit, nepochs)
     @assert !xor(isgpu(f), isgpu(g))
@@ -320,13 +343,15 @@ function vec2params!(params, v)
     end
 end
 
-function lbfgs(f::AbstractPoly{T,U,D}, g::AbstractBlockPSDModel{T,D}, reg_type, reg_params;
+function lbfgs(f::ObjFunc{T,D}, g::AbstractBlockPSDModel{T,D}, reg_type, reg_params;
     nepochs, batchsize, iterperepochs=1000,
     lossfunc_symb=:mse,
     lossfunc_param=1.0,
-    show_progress=true
-) where {T<:AbstractFloat,U,D<:Domain}
+    show_progress=true,
+    deterministic=false
+) where {T<:AbstractFloat,D<:Domain}
     @assert !xor(isgpu(f), isgpu(g))
+    @assert !(deterministic && nepochs > 1) "Deterministic sampling is used, so do only one epoch."
 
     params = Flux.params(trainable_params(g))
     X = Array{T}(undef, dim(g), batchsize)
@@ -345,7 +370,7 @@ function lbfgs(f::AbstractPoly{T,U,D}, g::AbstractBlockPSDModel{T,D}, reg_type, 
 
     pbar = Progress(nepochs; enabled=show_progress)
     for _ ∈ 1:nepochs
-        _samples!(X, g)
+        deterministic ? _samples_deterministic!(X, g) : _samples!(X, g)
         _evaluate!(yf, f, X)
         update!(reg, g)
 
@@ -370,7 +395,7 @@ function lbfgs(f::AbstractPoly{T,U,D}, g::AbstractBlockPSDModel{T,D}, reg_type, 
     end
 end
 
-function l∞norm_samples(f::AbstractPoly{T}, g::AbstractBlockPSDModel{T}; nsamples=4096) where {T}
+function l∞norm_samples(f::ObjFunc{T}, g::AbstractBlockPSDModel{T}; nsamples=4096) where {T}
     X = Array{T}(undef, dim(g), nsamples)
     isgpu(f) && (X = CuArray(X))
     _samples!(X, g)
