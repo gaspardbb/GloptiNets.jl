@@ -229,19 +229,6 @@ function random_polycheby(proba::ApproxBesselSampler{T,ℕ}, N; offset0=false)::
     PolyCheby(z0, coeffs, ωs; nochecks=true)
 end
 
-"#TODO: merge with `random_pos_polytrigo`."
-function random_pos_polycheby(proba::ApproxBesselSampler{T,ℕ}, N, target_hnorm2) where {T}
-    f = random_polycheby(proba, N; offset0=true)
-    R² = Hnorm2(f, proba)
-    q₀ = prod(proba.weights[i][1] for i ∈ 1:dim(proba))
-    f★, _ = estimate_min(f, 50; show_progress=false)
-    # Condition for the Hnorm to be target_hnorm2: α² R² + f★²/q₀ = target_hnorm2
-    α = √(target_hnorm2 / (R² + abs2(f★) / q₀))
-    # Condition for the polynomial to be positive: c + α * f = 0
-    c = -α * f★
-    PolyCheby(c, α * f.coefficients, f.frequencies; nochecks=true)
-end
-
 
 "
     PolyTrigo(offset, coefficients, frequencies)
@@ -274,7 +261,7 @@ dim(f::PolyTrigo) = size(frequencies(f), 1)
 degrees(f::PolyTrigo) = dropdims(sum(abs.(frequencies(f)), dims=1), dims=1)
 
 Base.convert(::Type{Any}, f::PolyTrigo) = f
-Base.convert(::Type{T}, f::PolyTrigo) where {T} = PolyTrigo(
+Base.convert(::Type{T}, f::PolyTrigo) where {T<:AbstractFloat} = PolyTrigo(
     convert(T, offset(f)),
     convert(Vector{Complex{T}}, coefficients(f)),
     frequencies(f);
@@ -400,27 +387,36 @@ function random_polytrigo(proba::ApproxBesselSampler{T,ℤ}, N)::PolyTrigo{T,Int
 end
 
 """
-# TODO This is way too complex. Do as with PolyCheby. 
-"""
-function random_pos_polytrigo(proba::ApproxBesselSampler{T,ℤ}, N, target_hnorm2; nrounds_max=100) where {T}
-    f = random_polytrigo(proba, N)
-    q₀ = prod(proba.weights[i][1] for i ∈ 1:dim(proba))
-    f̂₀ = offset(f)
-    R = Hnorm2(f, proba) - abs2(f̂₀) / q₀
+Returns a positive polynomial.
 
-    α = one(T)
-    c = f̂₀
-    for _ ∈ 1:nrounds_max
-        residual = target_hnorm2 - abs2(f̂₀ - c) / q₀
-        residual < 0 && (α = zero(T); break)
-        α = √(residual / R)
-        f.coefficients .*= α # √α
-        R = α^2 * R
-        c, _ = estimate_min(f, 50; show_progress=false)
-        abs(α - one(T)) ≤ 1e-6 && break
-    end
-    abs(α - one(T)) > 1e-6 && @warn "Did not converge to target norm. α = $α"
-    PolyTrigo(f̂₀ - c, f.coefficients, f.frequencies; nochecks=true)
+# Method 
+
+For a given `f`, consider the function 
+```
+    g(x) = α × (f̂₀ - f★ + ∑ f̂(ω))
+```
+By definition, `g` has minimum `0`. It remains to choose `α` such that its norm is equal to `target_hnorm2`.
+"""
+function positive_polynomial(f::AbstractPoly{T,U,D}, proba::ApproxBesselSampler{T,D}, target_hnorm2) where {T,U,D}
+    f★, _ = estimate_min(f, 50; show_progress=false)
+    R² = Hnorm2(f, proba)
+    q₀ = prod(getindex.(proba.weights, 1))
+
+    α = √(target_hnorm2 / (R² + (abs2(f★) - 2f★ * offset(f)) / q₀))
+
+    _constructor(f, α * (offset(f) - f★), α * f.coefficients, f.frequencies)
+end
+random_pos_polytrigo(proba::ApproxBesselSampler{T,ℤ}, N, target_hnorm2) where {T} = positive_polynomial(random_polytrigo(proba, N), proba, target_hnorm2)
+
+@testitem "Positive polynomial" begin
+    f = PolyTrigo(randn(), randn(ComplexF64, 3), [0 1 -1; 1 0 2])
+    proba = ApproxBesselSampler(ℤ, ones(2); tol=1e-9)
+    fpos = positive_polynomial(f, proba, 5.0)
+    fpos_min, _ = estimate_min(fpos, 10; show_progress=false)
+    fpos_hnorm2 = Hnorm2(fpos, proba)
+
+    @test isapprox(fpos_min, 0.0, atol=1e-8)
+    @test isapprox(fpos_hnorm2, 5.0, atol=1e-8)
 end
 
 save(f::PolyTrigo, filename) = jldsave("$filename.jld2"; offset=offset(f), coefficients=coefficients(f), frequencies=frequencies(f))

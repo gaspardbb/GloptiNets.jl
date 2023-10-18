@@ -28,6 +28,7 @@ export PolyCheby, PolyTrigo
 export evaluate, evaluate_cos, cheby, fourier
 export blocksize, rank, nblocks, dim, ncoeffs, offset, coefficients_scaled  # accessors
 include("besselmixture.jl")
+export BesselMixtureTrigo
 include("experimental.jl")
 
 #= 
@@ -87,7 +88,7 @@ function Hnorm2(f::AbstractPoly{T,U,D}, proba::ApproxBesselSampler{T,D}) where {
     ps = pdf(proba, hcat(zeros(U, dim(f)), frequencies(f)))
 
     abs2(offset(f)) / ps[1] + @views (
-        _coeff(f) * sum(
+        (1 / _coeff(f)) * sum(
             abs2.(coefficients(f)) ./ ps[2:end]
         )
     )

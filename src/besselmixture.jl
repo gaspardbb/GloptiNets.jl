@@ -19,6 +19,13 @@ scale(f::BesselMixtureTrigo) = f.scale
 ncoeffs(f::BesselMixtureTrigo) = size(anchors(f), 2)
 dim(f::BesselMixtureTrigo) = size(anchors(f), 1)
 
+Base.convert(::Type{Any}, f::BesselMixtureTrigo) = f
+Base.convert(::Type{T}, f::BesselMixtureTrigo) where {T} = BesselMixtureTrigo(
+    convert(T, constant(f)),
+    convert(Vector{T}, coefficients(f)),
+    convert(Matrix{T}, anchors(f)),
+    convert(T, scale(f))
+)
 gpu(f::BesselMixtureTrigo) = BesselMixtureTrigo(
     constant(f),
     CuArray(coefficients(f)),
@@ -97,17 +104,17 @@ fourier(f::BesselMixtureTrigo, ωs::AbstractMatrix) = fourier(f, ωs, ApproxBess
     @test ≈(fourier_comput, fourier_approx; rtol=1e-5, atol=1e-5)
 end
 
-function hnorm2(f::BesselMixtureTrigo{T}, proba) where {T}
+function Hnorm2(f::BesselMixtureTrigo{T}, proba) where {T}
     K = _bessel_kernel(anchors(f), anchors(f), scale(f))
     dot(coefficients(f), K, coefficients(f)) + 2constant(f) * sum(coefficients(f)) + abs2(f.constant) / prod(w[1] for w in proba.weights)
 end
-hnorm2(f) = hnorm2(f, ApproxBesselSampler(ℤ, scale(f) * ones(dim(f)); tol=1e-10))
+Hnorm2(f) = Hnorm2(f, ApproxBesselSampler(ℤ, scale(f) * ones(dim(f)); tol=1e-10))
 
-@testitem "Positive hnorm2" begin
+@testitem "Positive Hnorm2" begin
     proba = ApproxBesselSampler(ℤ, 2.1ones(2); tol=1e-8)
     for _ in 1:10
         f = random_besselmixture(10, 2, 2.1)
-        @test hnorm2(f) > 0
+        @test Hnorm2(f) > 0
     end
 end
 
@@ -134,16 +141,14 @@ end
 end
 
 # TODO: move all the following in a specific abstraction ObjFunc{ℤ} :> AbstractPoly{ℤ, U}
-random_besselmixture(ncoeffs, dim, s, ::Type{T}) where {T} = BesselMixtureTrigo(randn(T,), randn(T, ncoeffs), randn(T, dim, ncoeffs), s)
-random_besselmixture(ncoeffs, dim, s) = random_besselmixture(ncoeffs, dim, s, Float64)
-random_pos_besselmixture(ncoeffs, dim, s, ::Type{T}) where {T} =
+random_besselmixture(ncoeffs, dim, s, ::Type{T}=Float64) where {T} = BesselMixtureTrigo(randn(T,), randn(T, ncoeffs), randn(T, dim, ncoeffs), s)
+random_pos_besselmixture(ncoeffs, dim, s, hnorm, ::Type{T}=Float64; ntries_min=100) where {T} =
     let f = random_besselmixture(ncoeffs, dim, s, T)
-        f★, _ = estimate_min(f, 100)
+        f★, _ = estimate_min(f, ntries_min)
         fpos = BesselMixtureTrigo(constant(f) - f★, coefficients(f), anchors(f), scale(f))
-        hnorm = √hnorm2(fpos)
-        BesselMixtureTrigo(constant(fpos) / hnorm, coefficients(fpos) / hnorm, anchors(fpos), scale(fpos))
+        C = √Hnorm2(fpos) / hnorm
+        BesselMixtureTrigo(constant(fpos) / C, coefficients(fpos) / C, anchors(fpos), scale(fpos))
     end
-random_pos_besselmixture(ncoeffs, dim, s) = random_pos_besselmixture(ncoeffs, dim, s, Float64)
 
 "A lower bound on `f` corresponding to the lower bound hierarchy when `g=0`, with the RKHS norm."
 function lowerbound(f::BesselMixtureTrigo)
